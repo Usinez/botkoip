@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Camera Access</title>
+</head>
+<body>
+    <h1>Доступ к камере</h1>
+    <video id="cameraFeed" autoplay playsinline style="width: 100%; max-width: 600px;"></video>
+    <button id="capture">Сделать фото</button>
+    <canvas id="photoCanvas" style="display: none;"></canvas>
+    <img id="capturedPhoto" alt="Captured Photo" style="width: 100%; max-width: 600px; display: none;">
+
+    <script>
+        const video = document.getElementById('cameraFeed');
+        const captureButton = document.getElementById('capture');
+        const canvas = document.getElementById('photoCanvas');
+        const photo = document.getElementById('capturedPhoto');
+
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+            } catch (error) {
+                alert("Не удалось получить доступ к камере: " + error.message);
+            }
+        }
+
+        captureButton.addEventListener('click', () => {
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Отображение сделанного фото
+            photo.src = canvas.toDataURL('image/jpeg');
+            photo.style.display = 'block';
+        });
+
+        startCamera();
+    </script>
+</body>
+</html>
