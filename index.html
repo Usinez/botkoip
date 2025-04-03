@@ -20,7 +20,9 @@
 
         async function startCamera() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" } // Указываем основную камеру
+                });
                 video.srcObject = stream;
             } catch (error) {
                 alert("Не удалось получить доступ к камере: " + error.message);
