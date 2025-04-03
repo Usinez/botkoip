@@ -9,20 +9,32 @@
     <h1>Доступ к камере</h1>
     <video id="cameraFeed" autoplay playsinline style="width: 100%; max-width: 600px;"></video>
     <button id="capture">Сделать фото</button>
+    <button id="switchCamera">Переключить камеру</button>
     <canvas id="photoCanvas" style="display: none;"></canvas>
     <img id="capturedPhoto" alt="Captured Photo" style="width: 100%; max-width: 600px; display: none;">
 
     <script>
         const video = document.getElementById('cameraFeed');
         const captureButton = document.getElementById('capture');
+        const switchCameraButton = document.getElementById('switchCamera');
         const canvas = document.getElementById('photoCanvas');
         const photo = document.getElementById('capturedPhoto');
 
-        async function startCamera() {
+        let currentFacingMode = "environment"; // Начинаем с тыловой камеры
+
+        async function startCamera(facingMode) {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment" } // Указываем основную камеру
-                });
+                // Останавливаем текущий видеопоток, если он существует
+                if (video.srcObject) {
+                    const tracks = video.srcObject.getTracks();
+                    tracks.forEach(track => track.stop());
+                }
+
+                const constraints = {
+                    video: { facingMode: facingMode }
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
             } catch (error) {
                 alert("Не удалось получить доступ к камере: " + error.message);
@@ -40,7 +52,14 @@
             photo.style.display = 'block';
         });
 
-        startCamera();
+        switchCameraButton.addEventListener('click', () => {
+            // Переключаем режим камеры
+            currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
+            startCamera(currentFacingMode); // Запускаем камеру с новым режимом
+        });
+
+        // Инициализация камеры
+        startCamera(currentFacingMode);
     </script>
 </body>
 </html>
