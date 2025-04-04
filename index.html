@@ -3,302 +3,232 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Фотоотчёт</title>
+    <title>Secure Photo App</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         body {
-            margin: 0;
-            padding: 0;
             font-family: Arial, sans-serif;
+            padding: 20px;
+            background: #f0f2f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .camera-preview {
+            width: 100%;
             background: #000;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-
-        #cameraWrapper {
-            flex: 1;
-            position: relative;
+            border-radius: 12px;
             overflow: hidden;
+            margin: 20px 0;
         }
-
-        #cameraPreview {
+        #video {
             width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1);
+            display: none;
         }
-
-        .controls {
-            position: fixed;
-            bottom: 20px;
+        #canvas {
+            display: none;
+        }
+        .btn {
+            display: block;
             width: 100%;
-            display: flex;
-            justify-content: center;
-            gap: 20px;
-            padding: 10px;
-            box-sizing: border-box;
-        }
-
-        button {
-            width: 60px;
-            height: 60px;
+            padding: 15px;
             border: none;
-            border-radius: 50%;
+            border-radius: 8px;
             background: #007bff;
             color: white;
-            font-size: 24px;
+            font-size: 16px;
             cursor: pointer;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-            transition: transform 0.2s;
+            margin: 10px 0;
         }
-
-        button:active {
-            transform: scale(0.95);
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
         }
-
-        .alert {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255, 0, 0, 0.9);
-            color: white;
-            padding: 12px 24px;
+        .status {
+            padding: 15px;
             border-radius: 8px;
-            max-width: 90%;
-            text-align: center;
+            margin: 15px 0;
             display: none;
-            z-index: 1000;
         }
-
-        .loader {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.8);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
+        .error {
+            background: #dc3545;
             color: white;
-            font-size: 18px;
-            z-index: 2000;
         }
-
-        .loader-spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-bottom: 15px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+        .success {
+            background: #28a745;
+            color: white;
         }
     </style>
 </head>
 <body>
-    <div class="alert" id="alert"></div>
-    <div class="loader" id="loader">
-        <div class="loader-spinner"></div>
-        <span>Обработка...</span>
-    </div>
+    <div class="container">
+        <h2>📷 Съемка объекта</h2>
+        
+        <div class="status" id="status"></div>
+        
+        <button class="btn" id="startCamera">
+            🎛️ Активировать камеру
+        </button>
 
-    <div id="cameraWrapper">
-        <video id="cameraPreview" autoplay playsinline muted></video>
-    </div>
+        <div class="camera-preview">
+            <video id="video"></video>
+            <canvas id="canvas"></canvas>
+        </div>
 
-    <div class="controls">
-        <button id="btnSwitchCamera">🔄</button>
-        <button id="btnCapture">📸</button>
+        <button class="btn" id="captureBtn" disabled>
+            📸 Сделать фото
+        </button>
     </div>
 
     <script>
         const tg = window.Telegram.WebApp;
-        let currentStream = null;
-        let currentCamera = 'environment';
-        let geolocationReceived = false;
+        let mediaStream = null;
+        let geolocation = null;
+        let deviceMotionData = [];
 
-        // Инициализация приложения
-        async function initializeApp() {
+        // Инициализация
+        document.addEventListener('DOMContentLoaded', async () => {
             try {
-                // Инициализация Telegram WebApp
-                tg.expand();
-                tg.enableClosingConfirmation();
+                await checkPermissions();
+                initDeviceMotion();
+            } catch (error) {
+                showError(error.message);
+            }
+        });
 
-                // Запрос разрешений
-                await requestPermissions();
-                
-                // Старт камеры
-                await startCamera();
-                
-                // Запрос геолокации
+        // Проверка разрешений
+        async function checkPermissions() {
+            try {
                 await requestGeolocation();
-
+                await requestCamera();
             } catch (error) {
-                showAlert(error.message);
+                throw new Error('Требуются разрешения: камера и геолокация');
             }
         }
 
-        // Запрос необходимых разрешений
-        async function requestPermissions() {
-            try {
-                // Проверка поддержки API
-                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error('Ваше устройство не поддерживает камеру');
-                }
-
-                // Проверка разрешения на камеру
-                const cameraPermission = await navigator.permissions.query({ name: 'camera' });
-                if (cameraPermission.state === 'denied') {
-                    throw new Error('Доступ к камере запрещён. Измените настройки разрешений.');
-                }
-
-                // Проверка разрешения на геолокацию
-                const geoPermission = await navigator.permissions.query({ name: 'geolocation' });
-                if (geoPermission.state === 'denied') {
-                    throw new Error('Доступ к геолокации запрещён. Измените настройки разрешений.');
-                }
-
-            } catch (error) {
-                throw new Error(`Ошибка разрешений: ${error.message}`);
-            }
-        }
-
-        // Запуск камеры
-        async function startCamera() {
-            try {
-                if (currentStream) {
-                    currentStream.getTracks().forEach(track => track.stop());
-                }
-
-                const constraints = {
-                    video: {
-                        facingMode: currentCamera,
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }
-                };
-
-                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-                document.getElementById('cameraPreview').srcObject = currentStream;
-
-                // Ожидание готовности видео
-                await new Promise((resolve) => {
-                    const video = document.getElementById('cameraPreview');
-                    video.onloadedmetadata = resolve;
-                });
-
-            } catch (error) {
-                throw new Error(`Ошибка камеры: ${error.message}`);
-            }
-        }
-
-        // Получение геолокации
-        async function requestGeolocation() {
+        // Запрос геолокации
+        function requestGeolocation() {
             return new Promise((resolve, reject) => {
                 navigator.geolocation.getCurrentPosition(
                     position => {
-                        geolocationReceived = true;
-                        resolve(position);
+                        geolocation = {
+                            lat: position.coords.latitude,
+                            lon: position.coords.longitude,
+                            accuracy: position.coords.accuracy
+                        };
+                        resolve();
                     },
-                    error => {
-                        let message = 'Ошибка геолокации: ';
-                        switch (error.code) {
-                            case error.PERMISSION_DENIED:
-                                message += 'Доступ запрещён';
-                                break;
-                            case error.POSITION_UNAVAILABLE:
-                                message += 'Данные недоступны';
-                                break;
-                            case error.TIMEOUT:
-                                message += 'Таймаут запроса';
-                                break;
-                            default:
-                                message += 'Неизвестная ошибка';
-                        }
-                        reject(new Error(message));
-                    },
-                    {
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 0
-                    }
+                    error => reject(new Error('Геолокация недоступна')),
+                    { enableHighAccuracy: true, timeout: 10000 }
                 );
             });
         }
 
-        // Создание фото
-        async function capturePhoto() {
-            showLoader(true);
+        // Активация камеры
+        async function requestCamera() {
             try {
-                const video = document.getElementById('cameraPreview');
-                const canvas = document.createElement('canvas');
-                const context = canvas.getContext('2d');
-
-                // Настройка canvas
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                // Получение геоданных
-                const geoData = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(
-                        position => resolve(position),
-                        error => reject(new Error('Не удалось получить геолокацию')),
-                        { enableHighAccuracy: true, timeout: 5000 }
-                    );
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" },
+                    audio: false
                 });
-
-                // Формирование данных
-                const photoData = {
-                    photo: canvas.toDataURL('image/jpeg', 0.9),
-                    lat: geoData.coords.latitude,
-                    lon: geoData.coords.longitude,
-                    accuracy: geoData.coords.accuracy,
-                    timestamp: new Date().toISOString()
-                };
-
-                // Отправка в бот
-                tg.sendData(JSON.stringify(photoData));
-                tg.close();
-
+                const video = document.getElementById('video');
+                video.srcObject = mediaStream;
+                video.play();
+                video.style.display = 'block';
+                document.getElementById('captureBtn').disabled = false;
             } catch (error) {
-                showAlert(error.message);
-            } finally {
-                showLoader(false);
+                throw new Error('Доступ к камере запрещен');
             }
         }
 
-        // Вспомогательные функции
-        function showAlert(message, duration = 5000) {
-            const alert = document.getElementById('alert');
-            alert.textContent = message;
-            alert.style.display = 'block';
-            setTimeout(() => alert.style.display = 'none', duration);
+        // Сбор данных с датчиков
+        function initDeviceMotion() {
+            if (typeof DeviceMotionEvent !== 'undefined' && 
+                typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission()
+                    .then(permission => {
+                        if (permission === 'granted') {
+                            window.addEventListener('devicemotion', handleMotion);
+                        }
+                    });
+            } else {
+                window.addEventListener('devicemotion', handleMotion);
+            }
         }
 
-        function showLoader(show) {
-            document.getElementById('loader').style.display = show ? 'flex' : 'none';
+        function handleMotion(event) {
+            deviceMotionData.push({
+                timestamp: Date.now(),
+                acceleration: event.acceleration,
+                rotationRate: event.rotationRate
+            });
         }
 
-        // Обработчики событий
-        document.getElementById('btnSwitchCamera').addEventListener('click', async () => {
-            currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
-            await startCamera();
+        // Съемка фото
+        document.getElementById('captureBtn').addEventListener('click', async () => {
+            try {
+                const { photoData, sensorData } = await capturePhoto();
+                const payload = {
+                    photo: photoData,
+                    lat: geolocation.lat,
+                    lon: geolocation.lon,
+                    accuracy: geolocation.accuracy,
+                    timestamp: Date.now(),
+                    sensor: sensorData
+                };
+
+                tg.sendData(JSON.stringify(payload));
+                tg.close();
+            } catch (error) {
+                showError(error.message);
+            }
         });
 
-        document.getElementById('btnCapture').addEventListener('click', capturePhoto);
+        async function capturePhoto() {
+            const video = document.getElementById('video');
+            const canvas = document.getElementById('canvas');
+            const context = canvas.getContext('2d');
 
-        // Старт приложения
-        document.addEventListener('DOMContentLoaded', initializeApp);
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Проверка движения
+            if (!checkMotionPattern()) {
+                throw new Error('Обнаружена статичная съемка');
+            }
+
+            return {
+                photoData: canvas.toDataURL('image/jpeg', 0.9),
+                sensorData: deviceMotionData
+            };
+        }
+
+        // Проверка паттернов движения
+        function checkMotionPattern() {
+            const threshold = 0.5;
+            let totalChange = 0;
+
+            for (let i = 1; i < deviceMotionData.length; i++) {
+                const a = deviceMotionData[i-1].acceleration;
+                const b = deviceMotionData[i].acceleration;
+                totalChange += Math.sqrt(
+                    Math.pow(b.x - a.x, 2) +
+                    Math.pow(b.y - a.y, 2) +
+                    Math.pow(b.z - a.z, 2)
+                );
+            }
+
+            return totalChange / deviceMotionData.length > threshold;
+        }
+
+        function showError(message) {
+            const status = document.getElementById('status');
+            status.className = 'status error';
+            status.textContent = message;
+            status.style.display = 'block';
+        }
     </script>
 </body>
 </html>
