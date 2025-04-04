@@ -1,65 +1,103 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Telegram Camera Access</title>
+    <title>Telegram Camera App</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f0f2f5;
+        }
+        #cameraFeed {
+            width: 100%;
+            height: 70vh;
+            object-fit: cover;
+        }
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            width: 60px;
+            height: 60px;
+            border: none;
+            border-radius: 50%;
+            background-color: #007bff;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+    </style>
 </head>
 <body>
-    <h1>Доступ к камере</h1>
-    <video id="cameraFeed" autoplay playsinline style="width: 100%; max-width: 600px;"></video>
-    <button id="capture">Сделать фото</button>
-    <button id="switchCamera">Переключить камеру</button>
-    <canvas id="photoCanvas" style="display: none;"></canvas>
-    <img id="capturedPhoto" alt="Captured Photo" style="width: 100%; max-width: 600px; display: none;">
+    <video id="cameraFeed" autoplay playsinline></video>
+    <div class="controls">
+        <button id="switchCamera">🔄</button>
+        <button id="capture">📸</button>
+    </div>
 
     <script>
+        const tg = Telegram.WebApp;
         const video = document.getElementById('cameraFeed');
-        const captureButton = document.getElementById('capture');
-        const switchCameraButton = document.getElementById('switchCamera');
-        const canvas = document.getElementById('photoCanvas');
-        const photo = document.getElementById('capturedPhoto');
+        let currentCamera = 'environment';
 
-        let currentFacingMode = "environment"; // Начинаем с тыловой камеры
-
-        async function startCamera(facingMode) {
+        async function initCamera() {
             try {
-                // Останавливаем текущий видеопоток, если он существует
-                if (video.srcObject) {
-                    const tracks = video.srcObject.getTracks();
-                    tracks.forEach(track => track.stop());
-                }
-
-                const constraints = {
-                    video: { facingMode: facingMode }
-                };
-
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: currentCamera }
+                });
                 video.srcObject = stream;
             } catch (error) {
-                alert("Не удалось получить доступ к камере: " + error.message);
+                alert('Ошибка доступа к камере: ' + error.message);
             }
         }
 
-        captureButton.addEventListener('click', () => {
-            const context = canvas.getContext('2d');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-            // Отображение сделанного фото
-            photo.src = canvas.toDataURL('image/jpeg');
-            photo.style.display = 'block';
+        document.getElementById('switchCamera').addEventListener('click', () => {
+            currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
+            initCamera();
         });
 
-        switchCameraButton.addEventListener('click', () => {
-            // Переключаем режим камеры
-            currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
-            startCamera(currentFacingMode); // Запускаем камеру с новым режимом
+        document.getElementById('capture').addEventListener('click', async () => {
+            try {
+                // Получение геолокации
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true,
+                        timeout: 5000
+                    });
+                });
+
+                // Захват фото
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0);
+
+                // Подготовка данных
+                const data = {
+                    photo: canvas.toDataURL('image/jpeg', 0.9),
+                    lat: position.coords.latitude,
+                    lon: position.coords.longitude
+                };
+
+                // Отправка в бот
+                tg.sendData(JSON.stringify(data));
+                tg.close();
+            } catch (error) {
+                alert('Ошибка: ' + error.message);
+            }
         });
 
         // Инициализация камеры
-        startCamera(currentFacingMode);
+        initCamera();
     </script>
 </body>
 </html>
