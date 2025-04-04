@@ -126,6 +126,43 @@
             }, 5000);
         }
 
+        async function requestGeolocation() {
+            try {
+                const permissionStatus = await navigator.permissions.query({ name: 'geolocation' });
+                if (permissionStatus.state === 'denied') {
+                    throw new Error('Доступ к геолокации запрещён. Пожалуйста, включите геолокацию в настройках браузера.');
+                }
+
+                return await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, (error) => {
+                        let errorMessage = 'Не удалось получить геолокацию.';
+                        switch (error.code) {
+                            case error.PERMISSION_DENIED:
+                                errorMessage = 'Пользователь запретил доступ к геолокации. Пожалуйста, включите геолокацию в настройках браузера.';
+                                break;
+                            case error.POSITION_UNAVAILABLE:
+                                errorMessage = 'Информация о местоположении недоступна.';
+                                break;
+                            case error.TIMEOUT:
+                                errorMessage = 'Превышено время ожидания запроса геолокации.';
+                                break;
+                            default:
+                                errorMessage = 'Неизвестная ошибка геолокации.';
+                        }
+                        reject(new Error(errorMessage));
+                    }, {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 0
+                    });
+                });
+            } catch (error) {
+                console.error('Ошибка при запросе геолокации:', error);
+                showError(error.message);
+                throw error;
+            }
+        }
+
         document.getElementById('switchCamera').addEventListener('click', () => {
             currentCamera = currentCamera === 'environment' ? 'user' : 'environment';
             initCamera();
@@ -134,51 +171,38 @@
         document.getElementById('capture').addEventListener('click', async () => {
             try {
                 loader.style.display = 'flex';
-                
-                // Получение геолокации
-                const position = await new Promise((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, {
-                        enableHighAccuracy: true,
-                        timeout: 10000,
-                        maximumAge: 0
-                    });
-                });
 
-                // Захват фото
+                let position = null;
+                try {
+                    position = await requestGeolocation();
+                } catch (error) {
+                    showError('Геолокация недоступна. Продолжаем без неё.');
+                }
+
                 const canvas = document.createElement('canvas');
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                // Подготовка данных
                 const data = {
                     photo: canvas.toDataURL('image/jpeg', 0.85),
-                    lat: position.coords.latitude,
-                    lon: position.coords.longitude,
+                    lat: position?.coords?.latitude || null,
+                    lon: position?.coords?.longitude || null,
                     datetime: new Date().toISOString()
                 };
 
-                // Проверка данных перед отправкой
-                if (!data.photo || !data.lat || !data.lon) {
-                    throw new Error('Не удалось получить все необходимые данные');
-                }
-
-                // Отправка в бот
                 tg.sendData(JSON.stringify(data));
                 tg.close();
             } catch (error) {
                 loader.style.display = 'none';
-                showError('Ошибка: ' + error.message);
                 console.error('Ошибка при захвате фото:', error);
             }
         });
 
-        // Обработчик изменения ориентации
         window.addEventListener('orientationchange', initCamera);
         window.addEventListener('resize', initCamera);
 
-        // Инициализация камеры
         initCamera();
     </script>
 </body>
