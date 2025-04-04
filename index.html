@@ -64,21 +64,13 @@
 <body>
     <div class="container">
         <h2>📷 Съемка объекта</h2>
-        
         <div class="status" id="status"></div>
-        
-        <button class="btn" id="startCamera">
-            🎛️ Активировать камеру
-        </button>
-
+        <button class="btn" id="startCamera">🎛️ Активировать камеру</button>
         <div class="camera-preview">
             <video id="video"></video>
             <canvas id="canvas"></canvas>
         </div>
-
-        <button class="btn" id="captureBtn" disabled>
-            📸 Сделать фото
-        </button>
+        <button class="btn" id="captureBtn" disabled>📸 Сделать фото</button>
     </div>
 
     <script>
@@ -92,29 +84,27 @@
             try {
                 await checkPermissions();
                 initDeviceMotion();
+                document.getElementById('startCamera').addEventListener('click', requestCamera);
             } catch (error) {
                 showError(error.message);
             }
         });
 
-        // Проверка разрешений
         async function checkPermissions() {
             try {
                 await requestGeolocation();
-                await requestCamera();
             } catch (error) {
-                throw new Error('Требуются разрешения: камера и геолокация');
+                throw new Error('Требуется разрешение на геолокацию');
             }
         }
 
-        // Запрос геолокации
         function requestGeolocation() {
             return new Promise((resolve, reject) => {
                 navigator.geolocation.getCurrentPosition(
                     position => {
                         geolocation = {
-                            lat: position.coords.latitude,
-                            lon: position.coords.longitude,
+                            lat: position.coords.latitude.toFixed(6),
+                            lon: position.coords.longitude.toFixed(6),
                             accuracy: position.coords.accuracy
                         };
                         resolve();
@@ -125,7 +115,6 @@
             });
         }
 
-        // Активация камеры
         async function requestCamera() {
             try {
                 mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -142,7 +131,6 @@
             }
         }
 
-        // Сбор данных с датчиков
         function initDeviceMotion() {
             if (typeof DeviceMotionEvent !== 'undefined' && 
                 typeof DeviceMotionEvent.requestPermission === 'function') {
@@ -159,23 +147,23 @@
 
         function handleMotion(event) {
             deviceMotionData.push({
-                timestamp: Date.now(),
-                acceleration: event.acceleration,
-                rotationRate: event.rotationRate
+                x: event.acceleration.x?.toFixed(2) || 0,
+                y: event.acceleration.y?.toFixed(2) || 0,
+                z: event.acceleration.z?.toFixed(2) || 0,
+                timestamp: Date.now()
             });
         }
 
-        // Съемка фото
         document.getElementById('captureBtn').addEventListener('click', async () => {
             try {
-                const { photoData, sensorData } = await capturePhoto();
+                const { photoData } = await capturePhoto();
                 const payload = {
-                    photo: photoData,
+                    photo: photoData.split(',')[1],
                     lat: geolocation.lat,
                     lon: geolocation.lon,
                     accuracy: geolocation.accuracy,
                     timestamp: Date.now(),
-                    sensor: sensorData
+                    motion: deviceMotionData.slice(-5)
                 };
 
                 tg.sendData(JSON.stringify(payload));
@@ -194,33 +182,13 @@
             canvas.height = video.videoHeight;
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            // Проверка движения
-            if (!checkMotionPattern()) {
-                throw new Error('Обнаружена статичная съемка');
+            if (deviceMotionData.length < 3) {
+                throw new Error('Дождитесь стабилизации устройства');
             }
 
             return {
-                photoData: canvas.toDataURL('image/jpeg', 0.9),
-                sensorData: deviceMotionData
+                photoData: canvas.toDataURL('image/jpeg', 0.9)
             };
-        }
-
-        // Проверка паттернов движения
-        function checkMotionPattern() {
-            const threshold = 0.5;
-            let totalChange = 0;
-
-            for (let i = 1; i < deviceMotionData.length; i++) {
-                const a = deviceMotionData[i-1].acceleration;
-                const b = deviceMotionData[i].acceleration;
-                totalChange += Math.sqrt(
-                    Math.pow(b.x - a.x, 2) +
-                    Math.pow(b.y - a.y, 2) +
-                    Math.pow(b.z - a.z, 2)
-                );
-            }
-
-            return totalChange / deviceMotionData.length > threshold;
         }
 
         function showError(message) {
